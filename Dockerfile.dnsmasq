@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi8/go-toolset:1.19.10-10.1692783630
+FROM registry.ci.openshift.org/openshift/release:golang-1.21
 USER root
 RUN yum install -y bind-utils net-tools procps jq
 RUN git clone git://thekelleys.org.uk/dnsmasq.git
