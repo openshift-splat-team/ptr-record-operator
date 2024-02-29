@@ -1,0 +1,60 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Go
+
+on:
+  push:
+    branches: [ "*" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    - name: Vendor
+      run: go mod tidy; go mod vendor
+    - name: Test
+      run: go test -v ./...
+    - name: Build DNS operator image
+      uses: redhat-actions/buildah-build@v2
+      id: build-image
+      with:
+        image: vsphere-ptr-record
+        tags: ${{ github.branch }} ${{ github.sha }}
+        containerfiles: |
+          ./Dockerfile.operator
+    - name: Push DNS operator Image to Quay
+      id: push-to-quay
+      uses: redhat-actions/push-to-registry@v2
+      with:
+        image: ${{ steps.build-image.outputs.image }}
+        tags: ${{ steps.build-image.outputs.tags }}
+        registry: quay.io/ocp-splat
+        username: ocp-splat+splat_team_push
+        password: ${{ secrets.REGISTRY_PASSWORD }}
+    - name: Build dnsmasq image
+      uses: redhat-actions/buildah-build@v2
+      id: build-dnsmasq-image
+      with:
+        image: dnsmasq-ci
+        tags: ${{ github.branch }} ${{ github.sha }}
+        containerfiles: |
+          ./Dockerfile.operator
+    - name: Push dnsmasq Image to Quay
+      id: push-dnsmasq-to-quay
+      uses: redhat-actions/push-to-registry@v2
+      with:
+        image: ${{ steps.build-image.outputs.image }}
+        tags: ${{ steps.build-image.outputs.tags }}
+        registry: quay.io/ocp-splat
+        username: ocp-splat+splat_team_push
+        password: ${{ secrets.REGISTRY_PASSWORD }}
