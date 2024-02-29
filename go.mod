@@ -1,6 +1,8 @@
 module github.com/openshift-splat-team/vsphere-ci-dns
 
-go 1.20
+go 1.21
+
+toolchain go1.21.6
 
 require (
 	github.com/miekg/dns v1.1.58
