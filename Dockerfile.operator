@@ -1,0 +1,8 @@
+FROM registry.access.redhat.com/ubi9/go-toolset:1.20.10-11
+USER root
+RUN yum install -y bind-utils net-tools procps jq
+WORKDIR vsphere-ci-dns
+COPY . .
+RUN ./hack/build.sh
+USER default
+CMD bin/ptr-record-operator
