@@ -1,9 +1,0 @@
-FROM registry.ci.openshift.org/openshift/release:golang-1.21
-USER root
-RUN yum install -y bind-utils net-tools procps jq
-RUN git clone git://thekelleys.org.uk/dnsmasq.git
-WORKDIR dnsmasq
-RUN make
-RUN make install
-USER default
-CMD dnsmasq -k -C /config/dnsmasq.cfg

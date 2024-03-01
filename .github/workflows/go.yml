@@ -41,20 +41,3 @@ jobs:
         registry: quay.io/ocp-splat
         username: ocp-splat+splat_team_push
         password: ${{ secrets.REGISTRY_PASSWORD }}
-    - name: Build dnsmasq image
-      uses: redhat-actions/buildah-build@v2
-      id: build-dnsmasq-image
-      with:
-        image: dnsmasq-ci
-        tags: ${{ github.branch }} ${{ github.sha }}
-        containerfiles: |
-          ./Dockerfile.dnsmasq
-    - name: Push dnsmasq Image to Quay
-      id: push-dnsmasq-to-quay
-      uses: redhat-actions/push-to-registry@v2
-      with:
-        image: ${{ steps.build-dnsmasq-image.outputs.image }}
-        tags: ${{ steps.build-dnsmasq-image.outputs.tags }}
-        registry: quay.io/ocp-splat
-        username: ocp-splat+splat_team_push
-        password: ${{ secrets.REGISTRY_PASSWORD }}
