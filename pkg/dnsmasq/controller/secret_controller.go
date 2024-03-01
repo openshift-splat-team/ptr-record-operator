@@ -25,10 +25,10 @@ import (
 	"os"
 
 	"github.com/miekg/dns"
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
-
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,8 +46,10 @@ var (
 // SecretReconciler reconciles a HaproxyMetal object
 type SecretReconciler struct {
 	client.Client
-	Scheme         *runtime.Scheme
-	additionalCIDR string
+	Scheme         	*runtime.Scheme
+	AdditionalCIDR 	string
+	PrivateKeyPath 	string
+	DnsServer 		string
 }
 
 // incIP increments an IP address.
@@ -74,7 +76,7 @@ func processCIDR(ctx context.Context, cidr string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("unable to reverse address: %v", err)
 		}
-		ptrRecords = append(ptrRecords, addr)
+		ptrRecords = append(ptrRecords, fmt.Sprintf("%s %s", ip.String(), addr))
 	}
 	return ptrRecords, nil
 }
@@ -95,15 +97,15 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			return ctrl.Result{}, fmt.Errorf("unable to parse subnets.json: %v", err)
 		}
 
-		if r.additionalCIDR != "" {
-			additionalRecords, err := processCIDR(ctx, r.additionalCIDR)
+		if r.AdditionalCIDR != "" {
+			additionalRecords, err := processCIDR(ctx, r.AdditionalCIDR)
 			if err != nil {
 				return ctrl.Result{}, fmt.Errorf("unable to process additional CIDR: %v", err)
 			}
 			records = append(records, additionalRecords...)
 		}
 
-		err = CreateUpdateDnsMasqConfig(ctx, r.Client, string(secret.Data["dnsmasq.cfg"]), records)
+		err = UpdateDNSHost(ctx, r.Client, r.PrivateKeyPath , r.DnsServer, string(secret.Data["dnsmasq.cfg"]), records)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("unable to create or update dnsmasq-config configmap: %v", err)
 		}
@@ -122,7 +124,7 @@ func (r *SecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func StartManager(additionalCIDR string) {
+func StartManager(context SecretReconciler) {
 	var metricsAddr string
 	var namespace string
 	var enableLeaderElection bool
@@ -155,10 +157,14 @@ func StartManager(additionalCIDR string) {
 
 	client := mgr.GetClient()
 	corev1.AddToScheme(mgr.GetScheme())
+	appsv1.AddToScheme(mgr.GetScheme())
+
 	if err = (&SecretReconciler{
 		Client:         client,
 		Scheme:         mgr.GetScheme(),
-		additionalCIDR: additionalCIDR,
+		AdditionalCIDR: context.AdditionalCIDR,
+		PrivateKeyPath: context.PrivateKeyPath,
+		DnsServer:      context.DnsServer,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "namespace")
 		os.Exit(1)

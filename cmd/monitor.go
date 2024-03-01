@@ -10,6 +10,8 @@ import (
 
 var (
 	additionalCIDR string
+	privateKeyPath string
+	dnsServer	  string
 )
 
 // monitorCmd represents the monitor command
@@ -23,11 +25,17 @@ Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		controller.StartManager(additionalCIDR)
+		controller.StartManager(controller.SecretReconciler{
+			AdditionalCIDR: additionalCIDR,
+			PrivateKeyPath: privateKeyPath,
+			DnsServer: dnsServer,
+		})
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(monitorCmd)
-	monitorCmd.PersistentFlags().StringVar(&additionalCIDR, "cidr", "", "additional CIDR for which to generate reverse DNS records")
+	monitorCmd.PersistentFlags().StringVar(&additionalCIDR, "cidr", "192.168.0.0/16", "additional CIDR for which to generate reverse DNS records")
+	monitorCmd.PersistentFlags().StringVar(&privateKeyPath, "private-key", "/ssh-config/private-key", "path to a private key for SSH access to the DNS server")
+	monitorCmd.PersistentFlags().StringVar(&dnsServer, "dns-server", "10.176.158.144", "additional CIDR for which to generate reverse DNS records")
 }

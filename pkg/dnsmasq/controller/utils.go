@@ -4,17 +4,89 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
+	scp "github.com/bramvdbogaerde/go-scp"
 	"github.com/miekg/dns"
 	"github.com/pkg/errors"
+	"golang.org/x/crypto/ssh"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
+
+func provisionHosts(ctx context.Context, client client.Client, privateKeyPath, server, hosts string) error {
+	logr := log.FromContext(ctx)
+
+	logr.Info("provisioning hosts file", "server", server)
+
+	// Load your private key
+	key, err := os.ReadFile(privateKeyPath)
+	if err != nil {
+		return errors.Wrapf(err, "unable to read private key")
+	}
+
+	// Create the Signer for this private key
+	signer, err := ssh.ParsePrivateKey(key)
+	if err != nil {
+		return errors.Wrapf(err, "unable to parse private key")
+	}
+
+
+	logr.Info("parsed private key")
+	config := &ssh.ClientConfig{
+		User: "root",
+		Auth: []ssh.AuthMethod{
+			ssh.PublicKeys(signer),			
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         0,
+	}
+
+	sshHost := fmt.Sprintf("%s:22", server)
+
+	logr.Info("connecing to server")
+	sshClient, err := ssh.Dial("tcp", sshHost, config)
+	if err != nil {
+		return errors.Wrapf(err, "unable to dial")
+	}
+
+	logr.Info("connected to server")
+
+	// Create a new SCP client
+	scpClient := scp.NewClient(sshHost, config)
+		
+	// Connect to the remote server
+	err = scpClient.Connect()
+	if err != nil {
+		return errors.Wrapf(err, "unable to connect")
+	}
+	defer scpClient.Close()
+
+	logr.Info("copying hosts file")
+	err = scpClient.Copy(ctx, strings.NewReader(hosts), "/tmp/additional-hosts", "0666", int64(len(hosts)))
+	if err != nil {
+		return errors.Wrapf(err, "unable to copy")
+	}
+
+	// Create a session
+	session, err := sshClient.NewSession()
+	if err != nil {
+		return errors.Wrapf(err, "unable to create session")
+	}
+	defer session.Close()
+
+	logr.Info("restart dnsmasq")
+	err = session.Run("sudo systemctl restart dnsmasq")
+	if err != nil {
+		return errors.Wrapf(err, "unable to restart dnsmasq")
+	}
+
+	logr.Info("restarted dnsmasq")
+
+	return nil
+}
+
 
 // SubnetParse parses a json file and returns a list of reverse DNS records
 func SubnetParse(content string) ([]string, error) {
@@ -33,7 +105,7 @@ func SubnetParse(content string) ([]string, error) {
 				if err != nil {
 					return nil, errors.Wrapf(err, "unable to reverse address")
 				}
-				records = append(records, arpa)
+				records = append(records, fmt.Sprintf("%s %s", ip.(string),arpa))
 			}
 		}
 	}
@@ -50,38 +122,9 @@ func ToHosts(records []string) string {
 	return builder.String()
 }
 
-func CreateUpdateDnsMasqConfig(ctx context.Context, client client.Client, header string, records []string) error {
+func UpdateDNSHost(ctx context.Context, client client.Client, privateKeyPath, server, header string, records []string) error {
 	logr := log.FromContext(ctx)
-	header = strings.ReplaceAll(header, "port=53", "port=25353")
-	hosts := ToHosts(records)
-	completeConfig := fmt.Sprintf("%s\n%s", header, hosts)
+	logr.Info("updating DNS host")
 
-	cm := corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "dnsmasq-config",
-			Namespace: "vsphere-infra-helpers",
-		},
-	}
-
-	err := client.Get(ctx, types.NamespacedName{Name: "dnsmasq-config", Namespace: "vsphere-infra-helpers"}, &cm)
-	if err != nil {
-		logr.Info("dnsmasq-config configmap not found, will create")
-		cm.Data = map[string]string{
-			"dnsmasq.cfg": completeConfig,
-		}
-		err = client.Create(ctx, &cm)
-		if err != nil {
-			logr.Error(err, "unable to create dnsmasq-config configmap")
-		}
-	} else {
-		cm.Data = map[string]string{
-			"dnsmasq.cfg": completeConfig,
-		}
-		err := client.Update(ctx, &cm)
-		if err != nil {
-			logr.Error(err, "unable to update dnsmasq-config configmap")
-		}
-	}
-
-	return nil
+	return provisionHosts(ctx, client, privateKeyPath, server, strings.Join(records, "\n"))	
 }
