@@ -1,6 +1,5 @@
 FROM registry.ci.openshift.org/openshift/release:golang-1.21
 USER root
-RUN yum install -y bind-utils net-tools procps jq
 WORKDIR vsphere-ci-dns
 COPY . .
 RUN ./hack/build.sh
