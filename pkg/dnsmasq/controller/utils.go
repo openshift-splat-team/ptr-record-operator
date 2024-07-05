@@ -32,12 +32,11 @@ func provisionHosts(ctx context.Context, client client.Client, privateKeyPath, s
 		return errors.Wrapf(err, "unable to parse private key")
 	}
 
-
 	logr.Info("parsed private key")
 	config := &ssh.ClientConfig{
 		User: "root",
 		Auth: []ssh.AuthMethod{
-			ssh.PublicKeys(signer),			
+			ssh.PublicKeys(signer),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         0,
@@ -45,7 +44,7 @@ func provisionHosts(ctx context.Context, client client.Client, privateKeyPath, s
 
 	sshHost := fmt.Sprintf("%s:22", server)
 
-	logr.Info("connecing to server")
+	logr.Info("connecting to server")
 	sshClient, err := ssh.Dial("tcp", sshHost, config)
 	if err != nil {
 		return errors.Wrapf(err, "unable to dial")
@@ -55,7 +54,7 @@ func provisionHosts(ctx context.Context, client client.Client, privateKeyPath, s
 
 	// Create a new SCP client
 	scpClient := scp.NewClient(sshHost, config)
-		
+
 	// Connect to the remote server
 	err = scpClient.Connect()
 	if err != nil {
@@ -64,7 +63,7 @@ func provisionHosts(ctx context.Context, client client.Client, privateKeyPath, s
 	defer scpClient.Close()
 
 	logr.Info("copying hosts file")
-	err = scpClient.Copy(ctx, strings.NewReader(hosts), "/tmp/additional-hosts", "0666", int64(len(hosts)))
+	err = scpClient.Copy(ctx, strings.NewReader(hosts), "/opt/ci-dns/additional-hosts", "0666", int64(len(hosts)))
 	if err != nil {
 		return errors.Wrapf(err, "unable to copy")
 	}
@@ -87,7 +86,6 @@ func provisionHosts(ctx context.Context, client client.Client, privateKeyPath, s
 	return nil
 }
 
-
 // SubnetParse parses a json file and returns a list of reverse DNS records
 func SubnetParse(content string) ([]string, error) {
 	records := []string{}
@@ -105,7 +103,7 @@ func SubnetParse(content string) ([]string, error) {
 				if err != nil {
 					return nil, errors.Wrapf(err, "unable to reverse address")
 				}
-				records = append(records, fmt.Sprintf("%s %s", ip.(string),arpa))
+				records = append(records, fmt.Sprintf("%s %s", ip.(string), arpa))
 			}
 		}
 	}
@@ -126,5 +124,5 @@ func UpdateDNSHost(ctx context.Context, client client.Client, privateKeyPath, se
 	logr := log.FromContext(ctx)
 	logr.Info("updating DNS host")
 
-	return provisionHosts(ctx, client, privateKeyPath, server, strings.Join(records, "\n"))	
+	return provisionHosts(ctx, client, privateKeyPath, server, strings.Join(records, "\n"))
 }
