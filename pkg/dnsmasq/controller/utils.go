@@ -123,6 +123,15 @@ func ToHosts(records []string) string {
 func UpdateDNSHost(ctx context.Context, client client.Client, privateKeyPath, server, header string, records []string) error {
 	logr := log.FromContext(ctx)
 	logr.Info("updating DNS host")
-
-	return provisionHosts(ctx, client, privateKeyPath, server, strings.Join(records, "\n"))
+	logr.V(1).Info("records count", "records", len(records))
+	allKeys := make(map[string]bool)
+	list := []string{}
+	for _, item := range records {
+		if _, value := allKeys[item]; !value {
+			allKeys[item] = true
+			list = append(list, item)
+		}
+	}
+	logr.V(1).Info("records after duplicate removal", "records", len(list))
+	return provisionHosts(ctx, client, privateKeyPath, server, strings.Join(list, "\n"))
 }
