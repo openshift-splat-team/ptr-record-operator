@@ -18,13 +18,13 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"os"
 
 	"github.com/miekg/dns"
+	vcmv1 "github.com/openshift-splat-team/vsphere-capacity-manager/pkg/apis/vspherecapacitymanager.splat.io/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -46,10 +46,10 @@ var (
 // SecretReconciler reconciles a HaproxyMetal object
 type SecretReconciler struct {
 	client.Client
-	Scheme         	*runtime.Scheme
-	AdditionalCIDR 	string
-	PrivateKeyPath 	string
-	DnsServer 		string
+	Scheme         *runtime.Scheme
+	AdditionalCIDR string
+	PrivateKeyPath string
+	DnsServer      string
 }
 
 // incIP increments an IP address.
@@ -86,6 +86,8 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	logr := log.FromContext(ctx)
 	logr.V(1).Info("reconciling Secret")
 	secret := &corev1.Secret{}
+
+	var records []string
 	err := r.Client.Get(ctx, req.NamespacedName, secret)
 	if err != nil {
 		logr.Error(err, "unable to fetch secret")
@@ -104,14 +106,30 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			}
 			records = append(records, additionalRecords...)
 		}
-
-		err = UpdateDNSHost(ctx, r.Client, r.PrivateKeyPath , r.DnsServer, string(secret.Data["dnsmasq.cfg"]), records)
-		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("unable to create or update dnsmasq-config configmap: %v", err)
-		}
-	} else {
-		return ctrl.Result{}, errors.New("subnets.json does not exist")
 	}
+
+	var networkList vcmv1.NetworkList
+
+	err = r.Client.List(ctx, &networkList, client.InNamespace("vsphere-infra-helpers"))
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("unable to list networks: %v", err)
+	}
+	for _, network := range networkList.Items {
+		logr.V(1).Info("processing VCM network", "network", network.Name)
+		additionalRecords, err := processCIDR(ctx, network.Spec.MachineNetworkCidr)
+		if err != nil {
+			logr.V(1).Info(fmt.Sprintf("unable to process additional CIDR: %v", err))
+			continue
+		}
+		logr.V(1).Info(fmt.Sprintf("appending %d records", len(additionalRecords)))
+		records = append(records, additionalRecords...)
+	}
+
+	err = UpdateDNSHost(ctx, r.Client, r.PrivateKeyPath, r.DnsServer, string(secret.Data["dnsmasq.cfg"]), records)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("unable to update ci-dns.OCP-vsphere.cloud with additional hosts: %v", err)
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -158,7 +176,7 @@ func StartManager(context SecretReconciler) {
 	client := mgr.GetClient()
 	corev1.AddToScheme(mgr.GetScheme())
 	appsv1.AddToScheme(mgr.GetScheme())
-
+	vcmv1.AddToScheme(mgr.GetScheme())
 	if err = (&SecretReconciler{
 		Client:         client,
 		Scheme:         mgr.GetScheme(),
